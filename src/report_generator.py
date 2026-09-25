@@ -46,7 +46,7 @@ class ReportGenerator:
         comp_findings = [f for f in completeness_findings if component_name in f.get("item", "") or component_name in f.get("evidence", "")]
         
         connected = swc_node.get("connected_components", [])
-        target_name = connected[0] if connected else "RTE / BSW Stack"
+        target_name = connected[0] if connected else "Not specified in source document"
 
         return {
             "component_name": component_name,

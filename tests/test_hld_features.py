@@ -44,6 +44,38 @@ class TestHLDAssistantFeatures(unittest.TestCase):
         self.assertIn("swc_name", tree[0])
         self.assertIn("ports", tree[0])
 
+    def test_port_non_duplication_and_mapping(self):
+        """Verify ports belong ONLY to their owner SWC and generic fallbacks are avoided."""
+        builder = RelationshipBuilder()
+        tree = builder.build_tree(self.pages_v1, self.entities_v1)
+
+        all_seen_ports = []
+        for swc_node in tree:
+            swc_name = swc_node["swc_name"]
+            swc_ports = [p["port_name"] for p in swc_node["ports"]]
+
+            # Verify no port appears twice across different SWCs
+            for port_name in swc_ports:
+                self.assertNotIn(
+                    port_name,
+                    all_seen_ports,
+                    f"Port '{port_name}' was duplicated under multiple SWCs!"
+                )
+                all_seen_ports.append(port_name)
+
+            # Check that actual interfaces/signals are mapped and generic fallbacks are absent
+            for p in swc_node["ports"]:
+                self.assertNotEqual(p["mapped_interface"], "Unmapped Interface")
+                self.assertNotIn("Default Payload Signal", p["mapped_signals"])
+                self.assertNotEqual(p["target_component"], "RTE / BSW Gateway")
+
+        # Specific mapping check for EngineSpeedControl_SWC
+        esc_node = next((node for node in tree if node["swc_name"] == "EngineSpeedControl_SWC"), None)
+        self.assertIsNotNone(esc_node)
+        port_names = [p["port_name"] for p in esc_node["ports"]]
+        self.assertIn("PPort_EngineSpeed", port_names)
+        self.assertNotIn("PPort_ThrottleActuator", port_names)  # Belongs only to ThrottleControl_SWC!
+
     def test_completeness_analyzer(self):
         """Test rule-based completeness analysis."""
         builder = RelationshipBuilder()
