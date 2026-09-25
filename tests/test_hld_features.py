@@ -285,10 +285,27 @@ class TestHLDAssistantFeatures(unittest.TestCase):
         self.assertEqual(kpi["signals"], len(self.entities_bcm_v1.get("signals", [])))
         self.assertEqual(kpi["ports"], len(self.entities_bcm_v1.get("ports", [])))
 
-        # Grounding & No fabricated targets
+        # Preserve resolved component, interface, and signal relationships
+        rport = next((p for p in data["ports"] if p["name"] == "RPort_DoorStatus"), None)
+        self.assertIsNotNone(rport)
+        self.assertEqual(rport["component"], "DoorLock_SWC")
+        self.assertEqual(rport["interface"], "If_DoorState")
+        self.assertIn("Sig_DoorLock_status", rport["signals"])
+
         pport = next((p for p in data["ports"] if p["name"] == "PPort_LockActuator"), None)
         self.assertIsNotNone(pport)
+        self.assertEqual(pport["component"], "DoorLock_SWC")
+        self.assertEqual(pport["interface"], "Not specified in source document")
+        self.assertEqual(pport["signals"], [])
         self.assertEqual(pport["target_component"], "Not specified in source document")
+
+        if_door = next((i for i in data["interfaces"] if i["name"] == "If_DoorState"), None)
+        self.assertIsNotNone(if_door)
+        self.assertIn("Sig_DoorLock_status", if_door["signals"])
+
+        sig_door = next((s for s in data["signals"] if s["name"] == "Sig_DoorLock_status"), None)
+        self.assertIsNotNone(sig_door)
+        self.assertEqual(sig_door["interface"], "If_DoorState")
 
         # JSON Export test
         out_kb = kb.export_json(OUTPUT_DIR / "test_architecture_knowledge_base.json")
