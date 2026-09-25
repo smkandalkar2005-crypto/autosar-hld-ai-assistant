@@ -24,8 +24,7 @@ class CompletenessAnalyzer:
         for swc_node in relationship_tree:
             swc_name = swc_node["swc_name"]
             for port in swc_node["ports"]:
-                if port["mapped_interface"] == "Unmapped Interface":
-                    # Find page number for citation
+                if port["mapped_interface"] == "Not specified in source document":
                     page_ref = port.get("page_num", 1)
                     findings.append({
                         "category": "Incomplete Port/Interface Relationship",
@@ -51,7 +50,6 @@ class CompletenessAnalyzer:
 
         # Check 3: Missing MCAL / Hardware Drivers
         if "CanIf" in bsw and "Can" not in bsw:
-            # Find page where CanIf was cited
             page_num = 1
             for p in pages:
                 if "CanIf" in p["text"]:
@@ -93,7 +91,7 @@ class CompletenessAnalyzer:
                 "item": "Runnable Entities & OS Task Triggers",
                 "evidence": f"{len(swcs)} Software Components defined ({', '.join(swcs[:2])}).",
                 "detected_gap": "No Runnable Entities, period timing, or OS task execution bindings are documented.",
-                "reason_for_flagging": "RTE cannot schedule SWC execution without periodic or event-driven Runnable definitions.",
+                "reason_for_flagging": "The HLD does not document how SWC execution is triggered or scheduled. This may limit verification of RTE scheduling and execution behavior.",
                 "citation": "Document-wide Component Section"
             })
 

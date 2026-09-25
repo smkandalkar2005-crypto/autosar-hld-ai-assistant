@@ -84,7 +84,6 @@ class TestHLDAssistantFeatures(unittest.TestCase):
         builder = RelationshipBuilder()
         tree_bcm = builder.build_tree(self.pages_bcm, self.entities_bcm)
 
-        # Verify 'RTE / BSW Gateway' is NEVER present anywhere in tree
         for swc_node in tree_bcm:
             self.assertNotIn("RTE / BSW Gateway", swc_node["connected_components"])
             for p in swc_node["ports"]:
@@ -92,17 +91,14 @@ class TestHLDAssistantFeatures(unittest.TestCase):
                 self.assertNotEqual(p["mapped_interface"], "Unmapped Interface")
                 self.assertNotIn("Default Payload Signal", p["mapped_signals"])
 
-        # Check DoorLock_SWC specific ports
         dl_node = next((node for node in tree_bcm if node["swc_name"] == "DoorLock_SWC"), None)
         self.assertIsNotNone(dl_node)
 
-        # 1. RPort_DoorStatus -> If_DoorState -> Sig_DoorLock_status
         rport_ds = next((p for p in dl_node["ports"] if p["port_name"] == "RPort_DoorStatus"), None)
         self.assertIsNotNone(rport_ds)
         self.assertEqual(rport_ds["mapped_interface"], "If_DoorState")
         self.assertIn("Sig_DoorLock_status", rport_ds["mapped_signals"])
 
-        # 2. PPort_LockActuator -> "Not specified in source document" for interface & signal
         pport_la = next((p for p in dl_node["ports"] if p["port_name"] == "PPort_LockActuator"), None)
         self.assertIsNotNone(pport_la)
         self.assertEqual(pport_la["mapped_interface"], "Not specified in source document")
@@ -110,18 +106,19 @@ class TestHLDAssistantFeatures(unittest.TestCase):
         self.assertEqual(pport_la["target_component"], "Not specified in source document")
 
     def test_completeness_analyzer(self):
-        """Test rule-based completeness analysis."""
+        """Test rule-based completeness analysis and updated document-completeness reason text."""
         builder = RelationshipBuilder()
         tree = builder.build_tree(self.pages_v1, self.entities_v1)
         analyzer = CompletenessAnalyzer()
         findings = analyzer.analyze_completeness(self.pages_v1, self.entities_v1, tree)
         self.assertIsInstance(findings, list)
-        for f in findings:
-            self.assertIn("category", f)
-            self.assertIn("evidence", f)
-            self.assertIn("detected_gap", f)
-            self.assertIn("reason_for_flagging", f)
-            self.assertIn("citation", f)
+        
+        runnable_finding = next((f for f in findings if f.get("category") == "Incomplete Component Specification"), None)
+        self.assertIsNotNone(runnable_finding)
+        self.assertEqual(
+            runnable_finding["reason_for_flagging"],
+            "The HLD does not document how SWC execution is triggered or scheduled. This may limit verification of RTE scheduling and execution behavior."
+        )
 
     def test_document_comparator(self):
         """Test HLD V1 vs V2 revision comparison."""
