@@ -262,7 +262,7 @@ if st.session_state.current_doc:
 
         for swc_node in rel_tree:
             with st.expander(f"📦 Component: {swc_node['swc_name']}", expanded=True):
-                st.markdown(f"**Connected Target Components:** {', '.join(swc_node['connected_components']) or 'RTE / BSW Gateway'}")
+                st.markdown(f"**Connected Target Components:** {', '.join(swc_node['connected_components']) or 'Not specified in source document'}")
                 st.markdown("**Port Prototype Hierarchy:**")
                 for p in swc_node["ports"]:
                     st.markdown(f"""
