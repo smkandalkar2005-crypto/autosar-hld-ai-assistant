@@ -390,16 +390,15 @@ if st.session_state.current_doc:
                     with st.expander("📚 Version & Page Citations"):
                         for cit in msg["citations"]:
                             elem = cit.get("element")
-                            doc = cit.get("doc_name") or st.session_state.doc_v2 or "V2 HLD"
+                            doc = cit.get("doc_name") or st.session_state.doc_v2 or "AUTOSAR_Body_Control_Module_HLD_V2.pdf"
                             ver = cit.get("version", "Document Version: 2.0")
                             page = cit.get("page", 1)
                             sec = cit.get("section", "Section not specified in source document")
-                            snip = cit.get("snippet", "").replace("\n", " ").strip()
                             
                             if elem:
-                                st.markdown(f"- **{elem}** — Page {page} — *{sec}* (Doc: `{doc}`, {ver})\n  > _{snip}_")
+                                st.markdown(f"- **{elem}** — Page {page} — *{sec}* (Doc: `{doc}`, {ver})")
                             else:
-                                st.markdown(f"- Page {page} — *{sec}* (Doc: `{doc}`, {ver})\n  > _{snip}_")
+                                st.markdown(f"- Page {page} — *{sec}* (Doc: `{doc}`, {ver})")
 
     # Tab 7: Reports & Component Detail Export
     with tab7:
