@@ -43,21 +43,52 @@ class ReportGenerator:
 
     def export_component_detail_report(self, component_name: str, swc_node: Dict[str, Any], completeness_findings: List[Dict[str, Any]]) -> Dict[str, Any]:
         """Requirement 4: Detailed Component Report for selected SWC."""
-        comp_findings = [f for f in completeness_findings if component_name in f.get("item", "") or component_name in f.get("evidence", "")]
+        # Include findings specifically referencing this component
+        comp_findings = [f for f in completeness_findings if component_name in f.get("item", "")]
         
         connected = swc_node.get("connected_components", [])
-        target_name = connected[0] if connected else "Not specified in source document"
+        ports = swc_node.get("ports", [])
+
+        functional_flows = []
+        source_refs = []
+
+        if ports:
+            # Build functional flow strictly from actual documented ports
+            p_in = [p for p in ports if "RPort" in p["type"] or "Requester" in p["type"]]
+            p_out = [p for p in ports if "PPort" in p["type"] or "Provider" in p["type"]]
+            
+            flow_parts = []
+            if p_in:
+                sig_str = ", ".join([s for s in p_in[0]["mapped_signals"] if s != "Not specified in source document"])
+                if_str = f" via {p_in[0]['mapped_interface']}" if p_in[0]["mapped_interface"] != "Not specified in source document" else ""
+                flow_parts.append(f"Receives {sig_str or p_in[0]['port_name']}{if_str}")
+            
+            flow_parts.append("Processes component logic")
+
+            if p_out:
+                tgt = p_out[0]["target_component"] if p_out[0]["target_component"] != "Not specified in source document" else (connected[0] if connected else "Not specified in source document")
+                sig_str = ", ".join([s for s in p_out[0]["mapped_signals"] if s != "Not specified in source document"])
+                if_str = f" via {p_out[0]['mapped_interface']}" if p_out[0]["mapped_interface"] != "Not specified in source document" else ""
+                flow_parts.append(f"Outputs {sig_str or p_out[0]['port_name']}{if_str} to {tgt}")
+
+            functional_flows.append(" -> ".join(flow_parts))
+
+            # Collect source references ONLY from actual port citations
+            for p in ports:
+                page_n = p.get("page_num")
+                if page_n:
+                    ref_str = f"Document Page {page_n}"
+                    if ref_str not in source_refs:
+                        source_refs.append(ref_str)
 
         return {
             "component_name": component_name,
             "type": "Atomic Application Software Component",
-            "ports": swc_node.get("ports", []),
+            "ports": ports,
             "connected_components": connected,
-            "functional_flows": [
-                f"Receives sensor data via RPort -> Computes internal algorithm -> Outputs control signal over PPort to {target_name}"
-            ],
+            "functional_flows": functional_flows,
             "findings_and_gaps": comp_findings,
-            "source_references": [f"Document Page {p.get('page_num', 1)}" for p in swc_node.get("ports", [])]
+            "source_references": source_refs
         }
 
     def export_pdf(self, doc_name: str, entities: Dict[str, Any], inconsistencies: list, filename: str = "autosar_analysis_report.pdf") -> Path:

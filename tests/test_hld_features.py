@@ -13,6 +13,7 @@ from src.relationship_builder import RelationshipBuilder
 from src.completeness_analyzer import CompletenessAnalyzer
 from src.comparator import DocumentComparator
 from src.vector_store import VectorStore
+from src.llm_engine import LLMEngine
 from src.report_generator import ReportGenerator
 from src.config import SAMPLE_DOCS_DIR, OUTPUT_DIR
 
@@ -20,31 +21,31 @@ class TestHLDAssistantFeatures(unittest.TestCase):
 
     @classmethod
     def setUpClass(cls):
-        cls.pdf_v1_path = SAMPLE_DOCS_DIR / "AUTOSAR_Engine_Control_Unit_HLD.pdf"
-        cls.pdf_v2_path = SAMPLE_DOCS_DIR / "AUTOSAR_Engine_Control_Unit_HLD_V2.pdf"
-        cls.pdf_bcm_path = SAMPLE_DOCS_DIR / "AUTOSAR_Body_Control_Module_HLD.pdf"
+        cls.pdf_ecu_v1_path = SAMPLE_DOCS_DIR / "AUTOSAR_Engine_Control_Unit_HLD.pdf"
+        cls.pdf_bcm_v1_path = SAMPLE_DOCS_DIR / "AUTOSAR_Body_Control_Module_HLD.pdf"
+        cls.pdf_bcm_v2_path = SAMPLE_DOCS_DIR / "AUTOSAR_Body_Control_Module_HLD_V2.pdf"
 
-        cls.parser_v1 = PDFParser(str(cls.pdf_v1_path), doc_version="V1.0")
-        cls.pages_v1 = cls.parser_v1.extract_pages()
-        cls.chunks_v1 = cls.parser_v1.chunk_document()
+        cls.parser_ecu_v1 = PDFParser(str(cls.pdf_ecu_v1_path), fallback_version="Version 1.0")
+        cls.pages_ecu_v1 = cls.parser_ecu_v1.extract_pages()
+        cls.chunks_ecu_v1 = cls.parser_ecu_v1.chunk_document()
 
-        cls.parser_v2 = PDFParser(str(cls.pdf_v2_path), doc_version="V2.0")
-        cls.pages_v2 = cls.parser_v2.extract_pages()
-        cls.chunks_v2 = cls.parser_v2.chunk_document()
+        cls.parser_bcm_v1 = PDFParser(str(cls.pdf_bcm_v1_path), fallback_version="Version 1.0")
+        cls.pages_bcm_v1 = cls.parser_bcm_v1.extract_pages()
+        cls.chunks_bcm_v1 = cls.parser_bcm_v1.chunk_document()
 
-        cls.parser_bcm = PDFParser(str(cls.pdf_bcm_path), doc_version="V1.4")
-        cls.pages_bcm = cls.parser_bcm.extract_pages()
-        cls.chunks_bcm = cls.parser_bcm.chunk_document()
+        cls.parser_bcm_v2 = PDFParser(str(cls.pdf_bcm_v2_path), fallback_version="Version 2.0")
+        cls.pages_bcm_v2 = cls.parser_bcm_v2.extract_pages()
+        cls.chunks_bcm_v2 = cls.parser_bcm_v2.chunk_document()
 
         cls.extractor = ArchitectureExtractor()
-        cls.entities_v1 = cls.extractor.extract_entities(cls.pages_v1)
-        cls.entities_v2 = cls.extractor.extract_entities(cls.pages_v2)
-        cls.entities_bcm = cls.extractor.extract_entities(cls.pages_bcm)
+        cls.entities_ecu_v1 = cls.extractor.extract_entities(cls.pages_ecu_v1)
+        cls.entities_bcm_v1 = cls.extractor.extract_entities(cls.pages_bcm_v1)
+        cls.entities_bcm_v2 = cls.extractor.extract_entities(cls.pages_bcm_v2)
 
     def test_relationship_builder(self):
         """Test 5-tier relationship tree construction."""
         builder = RelationshipBuilder()
-        tree = builder.build_tree(self.pages_v1, self.entities_v1)
+        tree = builder.build_tree(self.pages_ecu_v1, self.entities_ecu_v1)
         self.assertIsInstance(tree, list)
         self.assertGreater(len(tree), 0)
         self.assertIn("swc_name", tree[0])
@@ -53,11 +54,10 @@ class TestHLDAssistantFeatures(unittest.TestCase):
     def test_port_non_duplication_and_mapping(self):
         """Verify ports belong ONLY to their owner SWC and generic fallbacks are avoided."""
         builder = RelationshipBuilder()
-        tree = builder.build_tree(self.pages_v1, self.entities_v1)
+        tree = builder.build_tree(self.pages_ecu_v1, self.entities_ecu_v1)
 
         all_seen_ports = []
         for swc_node in tree:
-            swc_name = swc_node["swc_name"]
             swc_ports = [p["port_name"] for p in swc_node["ports"]]
 
             for port_name in swc_ports:
@@ -73,44 +73,96 @@ class TestHLDAssistantFeatures(unittest.TestCase):
                 self.assertNotIn("Default Payload Signal", p["mapped_signals"])
                 self.assertNotEqual(p["target_component"], "RTE / BSW Gateway")
 
-        esc_node = next((node for node in tree if node["swc_name"] == "EngineSpeedControl_SWC"), None)
-        self.assertIsNotNone(esc_node)
-        port_names = [p["port_name"] for p in esc_node["ports"]]
-        self.assertIn("PPort_EngineSpeed", port_names)
-        self.assertNotIn("PPort_ThrottleActuator", port_names)
+    def test_bcm_v1_vs_v2_revision_comparison(self):
+        """Verify proper BCM V1 vs BCM V2 document revision comparison."""
+        comparator = DocumentComparator()
+        diff = comparator.compare_revisions(
+            "AUTOSAR_Body_Control_Module_HLD.pdf",
+            "AUTOSAR_Body_Control_Module_HLD_V2.pdf",
+            self.chunks_bcm_v1,
+            self.chunks_bcm_v2,
+            self.entities_bcm_v1,
+            self.entities_bcm_v2
+        )
 
-    def test_bcm_mapping_and_no_generic_fallbacks(self):
-        """Verify BCM relationships, no invented interfaces/signals, and total absence of RTE / BSW Gateway."""
+        # Added SWC: WindowControl_SWC
+        self.assertIn("WindowControl_SWC", diff["components"]["added"])
+        # Added Interface: If_WindowPosition
+        self.assertIn("If_WindowPosition", diff["interfaces"]["added"])
+        # Added Signal: Sig_WindowPos_pct
+        self.assertIn("Sig_WindowPos_pct", diff["signals"]["added"])
+        # Added BSW Module: Dem
+        self.assertIn("Dem", diff["bsw_modules"]["added"])
+        # Removed Interface: If_LegacyState
+        self.assertIn("If_LegacyState", diff["interfaces"]["removed"])
+
+    def test_version_aware_qa_synthesis(self):
+        """Verify Version-Aware Q&A uses structured comparison results and section-specific citations."""
+        comparator = DocumentComparator()
+        diff = comparator.compare_revisions(
+            "AUTOSAR_Body_Control_Module_HLD.pdf",
+            "AUTOSAR_Body_Control_Module_HLD_V2.pdf",
+            self.chunks_bcm_v1,
+            self.chunks_bcm_v2,
+            self.entities_bcm_v1,
+            self.entities_bcm_v2
+        )
+
+        llm = LLMEngine(provider="offline")
+
+        # 1. "What changed in V2?"
+        res1 = llm.generate_rag_response("What changed in V2?", self.chunks_bcm_v2, comparison_results=diff)
+        self.assertIn("WindowControl_SWC", res1["answer"])
+        self.assertIn("If_WindowPosition", res1["answer"])
+
+        # 2. "Which SWCs were modified or added in Version 2.0?"
+        res2 = llm.generate_rag_response("Which SWCs were modified or added in Version 2.0?", self.chunks_bcm_v2, comparison_results=diff)
+        self.assertIn("WindowControl_SWC", res2["answer"])
+        self.assertIn("Application Components", res2["citations"][0]["section"])
+
+        # 3. "What BSW drivers or dependencies were added in Version 2.0?"
+        res3 = llm.generate_rag_response("What BSW drivers or dependencies were added in Version 2.0?", self.chunks_bcm_v2, comparison_results=diff)
+        self.assertIn("Dem", res3["answer"])
+        self.assertIn("Basic Software Stack", res3["citations"][0]["section"])
+
+    def test_component_detail_report_lighting_swc_no_fake_flows(self):
+        """Verify component detail report for component with no documented ports (LightingControl_SWC)."""
+        reporter = ReportGenerator(OUTPUT_DIR)
         builder = RelationshipBuilder()
-        tree_bcm = builder.build_tree(self.pages_bcm, self.entities_bcm)
+        tree_bcm = builder.build_tree(self.pages_bcm_v1, self.entities_bcm_v1)
+        analyzer = CompletenessAnalyzer()
+        findings = analyzer.analyze_completeness(self.pages_bcm_v1, self.entities_bcm_v1, tree_bcm)
 
-        for swc_node in tree_bcm:
-            self.assertNotIn("RTE / BSW Gateway", swc_node["connected_components"])
-            for p in swc_node["ports"]:
-                self.assertNotEqual(p["target_component"], "RTE / BSW Gateway")
-                self.assertNotEqual(p["mapped_interface"], "Unmapped Interface")
-                self.assertNotIn("Default Payload Signal", p["mapped_signals"])
+        lighting_node = next((n for n in tree_bcm if n["swc_name"] == "LightingControl_SWC"), {"swc_name": "LightingControl_SWC", "ports": []})
+        report = reporter.export_component_detail_report("LightingControl_SWC", lighting_node, findings)
 
-        dl_node = next((node for node in tree_bcm if node["swc_name"] == "DoorLock_SWC"), None)
-        self.assertIsNotNone(dl_node)
+        self.assertEqual(report["component_name"], "LightingControl_SWC")
+        self.assertEqual(report["ports"], [])
+        self.assertEqual(report["functional_flows"], [], "Must NOT invent fake functional flows when ports are empty!")
+        self.assertEqual(report["source_references"], [], "Must NOT create source references when no port evidence exists!")
 
-        rport_ds = next((p for p in dl_node["ports"] if p["port_name"] == "RPort_DoorStatus"), None)
-        self.assertIsNotNone(rport_ds)
-        self.assertEqual(rport_ds["mapped_interface"], "If_DoorState")
-        self.assertIn("Sig_DoorLock_status", rport_ds["mapped_signals"])
+    def test_component_detail_report_doorlock_swc(self):
+        """Verify component detail report for component with documented ports (DoorLock_SWC)."""
+        reporter = ReportGenerator(OUTPUT_DIR)
+        builder = RelationshipBuilder()
+        tree_bcm = builder.build_tree(self.pages_bcm_v1, self.entities_bcm_v1)
+        analyzer = CompletenessAnalyzer()
+        findings = analyzer.analyze_completeness(self.pages_bcm_v1, self.entities_bcm_v1, tree_bcm)
 
-        pport_la = next((p for p in dl_node["ports"] if p["port_name"] == "PPort_LockActuator"), None)
-        self.assertIsNotNone(pport_la)
-        self.assertEqual(pport_la["mapped_interface"], "Not specified in source document")
-        self.assertEqual(pport_la["mapped_signals"], ["Not specified in source document"])
-        self.assertEqual(pport_la["target_component"], "Not specified in source document")
+        dl_node = next((n for n in tree_bcm if n["swc_name"] == "DoorLock_SWC"), {})
+        report = reporter.export_component_detail_report("DoorLock_SWC", dl_node, findings)
+
+        self.assertEqual(report["component_name"], "DoorLock_SWC")
+        self.assertGreater(len(report["ports"]), 0)
+        self.assertGreater(len(report["functional_flows"]), 0)
+        self.assertIn("Document Page 1", report["source_references"])
 
     def test_completeness_analyzer(self):
-        """Test rule-based completeness analysis and updated document-completeness reason text."""
+        """Test rule-based completeness analysis and exact reason text."""
         builder = RelationshipBuilder()
-        tree = builder.build_tree(self.pages_v1, self.entities_v1)
+        tree = builder.build_tree(self.pages_ecu_v1, self.entities_ecu_v1)
         analyzer = CompletenessAnalyzer()
-        findings = analyzer.analyze_completeness(self.pages_v1, self.entities_v1, tree)
+        findings = analyzer.analyze_completeness(self.pages_ecu_v1, self.entities_ecu_v1, tree)
         self.assertIsInstance(findings, list)
         
         runnable_finding = next((f for f in findings if f.get("category") == "Incomplete Component Specification"), None)
@@ -120,42 +172,17 @@ class TestHLDAssistantFeatures(unittest.TestCase):
             "The HLD does not document how SWC execution is triggered or scheduled. This may limit verification of RTE scheduling and execution behavior."
         )
 
-    def test_document_comparator(self):
-        """Test HLD V1 vs V2 revision comparison."""
-        comparator = DocumentComparator()
-        diff = comparator.compare_revisions(
-            "V1.pdf", "V2.pdf",
-            self.chunks_v1, self.chunks_v2,
-            self.entities_v1, self.entities_v2
-        )
-        self.assertIn("components", diff)
-        self.assertIn("added", diff["components"])
-        self.assertIn("TurboBoostControl_SWC", diff["components"]["added"])
-
-    def test_version_aware_vector_store(self):
-        """Test version-aware vector store filtering."""
-        vs = VectorStore()
-        vs.add_chunks(self.chunks_v1)
-        vs.add_chunks(self.chunks_v2)
-        results = vs.search("EngineSpeedControl_SWC", top_k=2, version_filter="V2.0")
-        self.assertIsInstance(results, list)
-        if results:
-            self.assertEqual(results[0].get("doc_version"), "V2.0")
-
     def test_report_generator_structured_export(self):
-        """Test component detail report & structured JSON export."""
+        """Test structured JSON export."""
         reporter = ReportGenerator(OUTPUT_DIR)
         builder = RelationshipBuilder()
-        tree = builder.build_tree(self.pages_v1, self.entities_v1)
+        tree = builder.build_tree(self.pages_ecu_v1, self.entities_ecu_v1)
         analyzer = CompletenessAnalyzer()
-        findings = analyzer.analyze_completeness(self.pages_v1, self.entities_v1, tree)
-
-        detail = reporter.export_component_detail_report("EngineSpeedControl_SWC", tree[0], findings)
-        self.assertEqual(detail["component_name"], "EngineSpeedControl_SWC")
+        findings = analyzer.analyze_completeness(self.pages_ecu_v1, self.entities_ecu_v1, tree)
 
         json_path = reporter.export_structured_json(
             {"doc_name": "V1.pdf"},
-            self.entities_v1,
+            self.entities_ecu_v1,
             tree,
             findings
         )

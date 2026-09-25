@@ -108,9 +108,22 @@ with st.sidebar:
 
     sample_files = list(SAMPLE_DOCS_DIR.glob("*.pdf"))
     sample_names = [f.name for f in sample_files]
+
+    # Pre-select matching V1 and V2 sample files for BCM
+    v1_idx = 0
+    v2_idx = 0
+    for idx, name in enumerate(["-- Select HLD V1 --"] + sample_names):
+        if "Body_Control_Module_HLD.pdf" in name:
+            v1_idx = idx
+            break
+
+    for idx, name in enumerate(["-- Select HLD V2 --"] + sample_names):
+        if "Body_Control_Module_HLD_V2.pdf" in name:
+            v2_idx = idx
+            break
     
-    selected_sample = st.selectbox("Primary HLD (V1)", ["-- Select HLD V1 --"] + sample_names, index=1 if len(sample_names) > 0 else 0)
-    selected_sample_v2 = st.selectbox("Comparison HLD (V2) [Optional]", ["-- Select HLD V2 --"] + sample_names, index=2 if len(sample_names) > 1 else 0)
+    selected_sample = st.selectbox("Primary HLD (V1)", ["-- Select HLD V1 --"] + sample_names, index=v1_idx if v1_idx > 0 else (1 if len(sample_names) > 0 else 0))
+    selected_sample_v2 = st.selectbox("Comparison HLD (V2) [Optional]", ["-- Select HLD V2 --"] + sample_names, index=v2_idx if v2_idx > 0 else (2 if len(sample_names) > 1 else 0))
 
     uploaded_file = st.file_uploader("Upload Custom HLD PDF", type=["pdf"])
 
@@ -137,8 +150,8 @@ if selected_sample_v2 != "-- Select HLD V2 --":
 
 if process_btn and target_pdf_path:
     with st.spinner("Analyzing HLD architecture, building 5-tier relationship tree, running completeness checks..."):
-        # 1. Parse & Chunk Primary HLD V1
-        parser = PDFParser(str(target_pdf_path), doc_version="V1.0")
+        # 1. Parse & Chunk Primary HLD V1 (dynamically extracting version string)
+        parser = PDFParser(str(target_pdf_path), fallback_version="Version 1.0")
         pages = parser.extract_pages()
         chunks = parser.chunk_document()
 
@@ -168,7 +181,7 @@ if process_btn and target_pdf_path:
         comp_results = None
         entities_v2 = {}
         if target_v2_path:
-            parser_v2 = PDFParser(str(target_v2_path), doc_version="V2.0")
+            parser_v2 = PDFParser(str(target_v2_path), fallback_version="Version 2.0")
             pages_v2 = parser_v2.extract_pages()
             chunks_v2 = parser_v2.chunk_document()
             entities_v2 = extractor.extract_entities(pages_v2)
@@ -312,7 +325,7 @@ if st.session_state.current_doc:
 
             col_diff1, col_diff2 = st.columns(2)
             with col_diff1:
-                st.markdown("#### ➕ Added Components & Modules")
+                st.markdown("#### ➕ Added Elements")
                 st.write("**Added SWCs:**", ", ".join(comp_res["components"]["added"]) or "None")
                 st.write("**Added BSW Stack Modules:**", ", ".join(comp_res["bsw_modules"]["added"]) or "None")
                 st.write("**Added Interfaces:**", ", ".join(comp_res["interfaces"]["added"]) or "None")
@@ -322,6 +335,7 @@ if st.session_state.current_doc:
                 st.markdown("#### ➖ Removed / Modified Elements")
                 st.write("**Removed SWCs:**", ", ".join(comp_res["components"]["removed"]) or "None")
                 st.write("**Removed Interfaces:**", ", ".join(comp_res["interfaces"]["removed"]) or "None")
+                st.write("**Removed Signals:**", ", ".join(comp_res["signals"]["removed"]) or "None")
                 st.write("**Modified Sections:**", str(len(comp_res["sections"]["common"])) + " Sections")
 
             st.markdown("#### Added Sections in V2 Revision")
@@ -355,7 +369,11 @@ if st.session_state.current_doc:
             context_chunks = vs.search(query_to_run, top_k=4)
 
             llm = LLMEngine(api_key=api_key, provider="gemini" if api_key else "offline")
-            response = llm.generate_rag_response(query_to_run, context_chunks)
+            response = llm.generate_rag_response(
+                query_to_run,
+                context_chunks,
+                comparison_results=st.session_state.comparison_results
+            )
 
             st.session_state.chat_history.append({
                 "role": "assistant",
