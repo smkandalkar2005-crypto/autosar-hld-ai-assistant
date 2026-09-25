@@ -389,7 +389,17 @@ if st.session_state.current_doc:
                     st.caption(f"**Confidence Level:** {msg.get('confidence')}")
                     with st.expander("📚 Version & Page Citations"):
                         for cit in msg["citations"]:
-                            st.markdown(f"- **Version: {cit['version']}** | **Page {cit['page']}** (Section: *{cit['section']}*)\n  `{cit['snippet']}`")
+                            elem = cit.get("element")
+                            doc = cit.get("doc_name") or st.session_state.doc_v2 or "V2 HLD"
+                            ver = cit.get("version", "Document Version: 2.0")
+                            page = cit.get("page", 1)
+                            sec = cit.get("section", "Section not specified in source document")
+                            snip = cit.get("snippet", "").replace("\n", " ").strip()
+                            
+                            if elem:
+                                st.markdown(f"- **{elem}** — Page {page} — *{sec}* (Doc: `{doc}`, {ver})\n  > _{snip}_")
+                            else:
+                                st.markdown(f"- Page {page} — *{sec}* (Doc: `{doc}`, {ver})\n  > _{snip}_")
 
     # Tab 7: Reports & Component Detail Export
     with tab7:

@@ -118,26 +118,33 @@ class TestHLDAssistantFeatures(unittest.TestCase):
         self.assertIn("Sig_WindowPos_pct", res1["answer"])
         self.assertIn("If_LegacyState", res1["answer"])
         self.assertNotIn("Interface If_WindowPosition /", res1["answer"]) # Ensure If_WindowPosition is not under Removed Elements
-        self.assertGreater(len(res1["citations"]), 0)
-        self.assertTrue(all(c.get("version") and c.get("page") and c.get("section") for c in res1["citations"]))
+        self.assertGreaterEqual(len(res1["citations"]), 4)
+        
+        cit_elements = [c.get("element") for c in res1["citations"]]
+        self.assertIn("WindowControl_SWC", cit_elements)
+        self.assertIn("If_WindowPosition", cit_elements)
+        self.assertIn("Sig_WindowPos_pct", cit_elements)
+        self.assertIn("Dem", cit_elements)
+        self.assertTrue(all(c.get("page") == 1 and "2.0" in c.get("version") and c.get("section") for c in res1["citations"]))
 
         # 2. "Which SWCs were modified or added in Version 2.0?"
         res2 = llm.generate_rag_response("Which SWCs were modified or added in Version 2.0?", self.chunks_bcm_v2, comparison_results=diff)
         self.assertIn("WindowControl_SWC", res2["answer"])
+        self.assertEqual(res2["citations"][0]["element"], "WindowControl_SWC")
         self.assertIn("Application Components", res2["citations"][0]["section"])
-        self.assertGreater(len(res2["citations"]), 0)
 
         # 3. "What BSW drivers or dependencies were added in Version 2.0?"
         res3 = llm.generate_rag_response("What BSW drivers or dependencies were added in Version 2.0?", self.chunks_bcm_v2, comparison_results=diff)
         self.assertIn("Dem", res3["answer"])
+        self.assertEqual(res3["citations"][0]["element"], "Dem")
         self.assertIn("Basic Software Stack", res3["citations"][0]["section"])
-        self.assertGreater(len(res3["citations"]), 0)
 
         # 4. "Show evidence for changes"
         res4 = llm.generate_rag_response("Show evidence for changes", self.chunks_bcm_v2, comparison_results=diff)
         self.assertIn("If_LegacyState", res4["answer"])
         self.assertIn("If_WindowPosition", res4["answer"])
         self.assertNotIn("Interface If_WindowPosition /", res4["answer"])
+        self.assertGreaterEqual(len(res4["citations"]), 4)
 
     def test_component_detail_report_lighting_swc_no_fake_flows(self):
         """Verify component detail report for component with no documented ports (LightingControl_SWC)."""

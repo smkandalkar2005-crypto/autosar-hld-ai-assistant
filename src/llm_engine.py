@@ -55,42 +55,62 @@ class LLMEngine:
 
             citations = []
 
-            def get_citation(keyword, fallback_sec, fallback_page=1):
+            def create_element_citation(element_name, element_type, default_sec, default_page=1):
+                match_page = default_page
+                match_sec = default_sec
                 for c in context_chunks:
+                    txt = c.get("text", "")
                     sec = c.get("section", "")
-                    text = c.get("text", "")
-                    if keyword.lower() in sec.lower() or keyword.lower() in text.lower():
-                        return {
-                            "version": c.get("doc_version", "Version 2.0"),
-                            "page": c.get("page_num", fallback_page),
-                            "section": sec if sec else fallback_sec,
-                            "snippet": (text[:120] + "...") if text else f"Grounding evidence for {keyword} in {v2_name}."
-                        }
+                    if element_name.lower() in txt.lower() or element_name.lower() in sec.lower():
+                        match_page = c.get("page_num", default_page)
+                        if sec and any(k in sec.lower() for k in ["component", "interface", "bsw", "stack", "software", "subsystem", "diagnostics", "port"]):
+                            match_sec = sec
+                        break
+
                 return {
-                    "version": f"{v2_name} (Version 2.0)" if v2_name else "Version 2.0",
-                    "page": fallback_page,
-                    "section": fallback_sec,
-                    "snippet": f"Extracted revision evidence for {keyword} from {v2_name}."
+                    "element": element_name,
+                    "doc_name": v2_name,
+                    "version": "Document Version: 2.0",
+                    "page": match_page,
+                    "section": match_sec,
+                    "snippet": f"{element_name} ({element_type}) identified in {match_sec} of {v2_name}."
                 }
 
             if "bsw" in query_lower and "component" not in query_lower and "signal" not in query_lower:
-                citations.append(get_citation("bsw", "4. Basic Software Stack & Diagnostics", 1))
+                for bsw in added_bsw:
+                    citations.append(create_element_citation(bsw, "Added BSW Module", "Section 4. Basic Software Stack & Diagnostics", 1))
+                if not citations:
+                    citations.append(create_element_citation("BSW Stack", "BSW Drivers", "Section 4. Basic Software Stack & Diagnostics", 1))
             elif "swc" in query_lower or ("component" in query_lower and "bsw" not in query_lower and "signal" not in query_lower):
-                citations.append(get_citation("component", "2. Application Components", 1))
+                for swc in added_swcs:
+                    citations.append(create_element_citation(swc, "Added SWC", "Section 2. Application Components", 1))
+                if not citations:
+                    citations.append(create_element_citation("Application SWCs", "Components", "Section 2. Application Components", 1))
             elif ("interface" in query_lower or "signal" in query_lower) and "component" not in query_lower and "bsw" not in query_lower:
-                citations.append(get_citation("interface", "3. Interface & Port Configuration", 1))
+                for iface in added_ifs:
+                    citations.append(create_element_citation(iface, "Added Interface", "Section 3. Interface & Port Configuration", 1))
+                for sig in added_sigs:
+                    citations.append(create_element_citation(sig, "Added Signal", "Section 3. Interface & Port Configuration", 1))
             else:
-                citations.append(get_citation("component", "2. Application Components", 1))
-                citations.append(get_citation("interface", "3. Interface & Port Configuration", 1))
-                citations.append(get_citation("bsw", "4. Basic Software Stack & Diagnostics", 1))
+                # General change query: list citations for all changed categories
+                for swc in added_swcs:
+                    citations.append(create_element_citation(swc, "Added SWC", "Section 2. Application Components", 1))
+                for iface in added_ifs:
+                    citations.append(create_element_citation(iface, "Added Interface", "Section 3. Interface & Port Configuration", 1))
+                for sig in added_sigs:
+                    citations.append(create_element_citation(sig, "Added Signal", "Section 3. Interface & Port Configuration", 1))
+                for bsw in added_bsw:
+                    citations.append(create_element_citation(bsw, "Added BSW Module", "Section 4. Basic Software Stack & Diagnostics", 1))
 
             if not citations and context_chunks:
                 for c in context_chunks[:2]:
                     citations.append({
-                        "version": c.get("doc_version", "Version 2.0"),
+                        "element": "Document Section",
+                        "doc_name": v2_name,
+                        "version": c.get("doc_version", "Document Version: 2.0"),
                         "page": c.get("page_num", 1),
                         "section": c.get("section", "Section not specified in source document"),
-                        "snippet": c.get("text", "")[:120] + "..."
+                        "snippet": c.get("text", "")[:120].replace("\n", " ") + "..."
                     })
 
             # Specific Question Answers
