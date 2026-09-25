@@ -54,73 +54,36 @@ class LLMEngine:
             added_secs = [s.get("section") for s in comparison_results.get("sections", {}).get("added", [])]
 
             citations = []
-            
-            # Build precise section citations matching the question context
-            if "swc" in query_lower or "component" in query_lower:
-                for c in context_chunks:
-                    sec_lower = c.get("section", "").lower()
-                    if "component" in sec_lower or "application" in sec_lower:
-                        citations.append({
-                            "version": c.get("doc_version", "Version 2.0"),
-                            "page": c.get("page_num", 1),
-                            "section": c.get("section", "Section 2. Application Components"),
-                            "snippet": c.get("text", "")[:120] + "..."
-                        })
-                        break
-                if not citations:
-                    for c in context_chunks:
-                        if "swc" in c.get("text", "").lower():
-                            citations.append({
-                                "version": c.get("doc_version", "Version 2.0"),
-                                "page": c.get("page_num", 1),
-                                "section": c.get("section", "Section 2. Application Components"),
-                                "snippet": c.get("text", "")[:120] + "..."
-                            })
-                            break
-            elif "bsw" in query_lower or "driver" in query_lower:
-                for c in context_chunks:
-                    sec_lower = c.get("section", "").lower()
-                    if "bsw" in sec_lower or "basic software" in sec_lower or "stack" in sec_lower:
-                        citations.append({
-                            "version": c.get("doc_version", "Version 2.0"),
-                            "page": c.get("page_num", 1),
-                            "section": c.get("section", "Section 4. Basic Software Stack & Diagnostics"),
-                            "snippet": c.get("text", "")[:120] + "..."
-                        })
-                        break
-                if not citations:
-                    for c in context_chunks:
-                        if "bsw" in c.get("text", "").lower():
-                            citations.append({
-                                "version": c.get("doc_version", "Version 2.0"),
-                                "page": c.get("page_num", 1),
-                                "section": c.get("section", "Section 4. Basic Software Stack & Diagnostics"),
-                                "snippet": c.get("text", "")[:120] + "..."
-                            })
-                            break
-            elif "interface" in query_lower or "signal" in query_lower:
-                for c in context_chunks:
-                    sec_lower = c.get("section", "").lower()
-                    if "interface" in sec_lower or "port" in sec_lower:
-                        citations.append({
-                            "version": c.get("doc_version", "Version 2.0"),
-                            "page": c.get("page_num", 1),
-                            "section": c.get("section", "Section 3. Interface & Port Configuration"),
-                            "snippet": c.get("text", "")[:120] + "..."
-                        })
-                        break
-                if not citations:
-                    for c in context_chunks:
-                        if "interface" in c.get("text", "").lower() or "signal" in c.get("text", "").lower():
-                            citations.append({
-                                "version": c.get("doc_version", "Version 2.0"),
-                                "page": c.get("page_num", 1),
-                                "section": c.get("section", "Section 3. Interface & Port Configuration"),
-                                "snippet": c.get("text", "")[:120] + "..."
-                            })
-                            break
 
-            # Fallback citations if empty
+            def get_citation(keyword, fallback_sec, fallback_page=1):
+                for c in context_chunks:
+                    sec = c.get("section", "")
+                    text = c.get("text", "")
+                    if keyword.lower() in sec.lower() or keyword.lower() in text.lower():
+                        return {
+                            "version": c.get("doc_version", "Version 2.0"),
+                            "page": c.get("page_num", fallback_page),
+                            "section": sec if sec else fallback_sec,
+                            "snippet": (text[:120] + "...") if text else f"Grounding evidence for {keyword} in {v2_name}."
+                        }
+                return {
+                    "version": f"{v2_name} (Version 2.0)" if v2_name else "Version 2.0",
+                    "page": fallback_page,
+                    "section": fallback_sec,
+                    "snippet": f"Extracted revision evidence for {keyword} from {v2_name}."
+                }
+
+            if "bsw" in query_lower and "component" not in query_lower and "signal" not in query_lower:
+                citations.append(get_citation("bsw", "4. Basic Software Stack & Diagnostics", 1))
+            elif "swc" in query_lower or ("component" in query_lower and "bsw" not in query_lower and "signal" not in query_lower):
+                citations.append(get_citation("component", "2. Application Components", 1))
+            elif ("interface" in query_lower or "signal" in query_lower) and "component" not in query_lower and "bsw" not in query_lower:
+                citations.append(get_citation("interface", "3. Interface & Port Configuration", 1))
+            else:
+                citations.append(get_citation("component", "2. Application Components", 1))
+                citations.append(get_citation("interface", "3. Interface & Port Configuration", 1))
+                citations.append(get_citation("bsw", "4. Basic Software Stack & Diagnostics", 1))
+
             if not citations and context_chunks:
                 for c in context_chunks[:2]:
                     citations.append({
@@ -131,14 +94,14 @@ class LLMEngine:
                     })
 
             # Specific Question Answers
-            if "bsw" in query_lower or "driver" in query_lower:
+            if "bsw" in query_lower and "component" not in query_lower and "signal" not in query_lower:
                 answer_text = (
                     f"### BSW Drivers & Dependencies Added in Version 2.0:\n\n"
                     f"- **Added BSW Stack Modules**: {', '.join(added_bsw) if added_bsw else 'None'}\n"
                     f"- **Removed BSW Modules**: {', '.join(removed_bsw) if removed_bsw else 'None'}\n\n"
                     f"**Document Evidence**: Extracted from revision comparison between `{v1_name}` and `{v2_name}`."
                 )
-            elif "swc" in query_lower or "component" in query_lower:
+            elif "swc" in query_lower or ("component" in query_lower and "bsw" not in query_lower and "signal" not in query_lower):
                 answer_text = (
                     f"### Software Components (SWCs) Status in Version 2.0:\n\n"
                     f"- **Added Components**: {', '.join(added_swcs) if added_swcs else 'None'}\n"
@@ -153,18 +116,16 @@ class LLMEngine:
                     f"- **Added Interface**: `{', '.join(added_ifs) or 'None'}` (Found in Section 3. Interface & Port Configuration)\n"
                     f"- **Added Signal**: `{', '.join(added_sigs) or 'None'}` (Found in Section 3. Interface & Port Configuration)\n"
                     f"- **Added BSW Module**: `{', '.join(added_bsw) or 'None'}` (Found in Section 4. Basic Software Stack)\n"
-                    f"- **Removed Elements**: Interface `{', '.join(added_ifs) or 'None'}` / Signal `{', '.join(removed_sigs) or 'None'}`"
+                    f"- **Removed Elements**: Interface `{', '.join(removed_ifs) or 'None'}` / Signal `{', '.join(removed_sigs) or 'None'}`"
                 )
             else:
                 answer_text = (
                     f"### Summary of Architectural Changes in Version 2.0:\n\n"
-                    f"- **Added Software Components**: {', '.join(added_swcs) if added_swcs else 'None'}\n"
-                    f"- **Removed Software Components**: {', '.join(removed_swcs) if removed_swcs else 'None'}\n"
-                    f"- **Added Interfaces**: {', '.join(added_ifs) if added_ifs else 'None'}\n"
-                    f"- **Removed Interfaces**: {', '.join(removed_ifs) if removed_ifs else 'None'}\n"
-                    f"- **Added Signals**: {', '.join(added_sigs) if added_sigs else 'None'}\n"
-                    f"- **Removed Signals**: {', '.join(removed_sigs) if removed_sigs else 'None'}\n"
+                    f"- **Added Components**: {', '.join(added_swcs) if added_swcs else 'None'}\n"
                     f"- **Added BSW Modules**: {', '.join(added_bsw) if added_bsw else 'None'}\n"
+                    f"- **Added Signals**: {', '.join(added_sigs) if added_sigs else 'None'}\n"
+                    f"- **Added Interfaces**: {', '.join(added_ifs) if added_ifs else 'None'}\n"
+                    f"- **Removed Elements**: Interface `{', '.join(removed_ifs) or 'None'}` / Signal `{', '.join(removed_sigs) or 'None'}`\n"
                     f"- **Added Sections**: {', '.join(added_secs) if added_secs else 'None'}"
                 )
 
