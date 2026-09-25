@@ -4,10 +4,11 @@ from typing import List, Dict, Any
 import pypdf
 
 class PDFParser:
-    """Parses AUTOSAR HLD PDF documents into structured section chunks with page citations."""
+    """Parses AUTOSAR HLD PDF documents into structured section chunks with page citations and version tags."""
 
-    def __init__(self, file_path: str):
+    def __init__(self, file_path: str, doc_version: str = "V1.0"):
         self.file_path = Path(file_path)
+        self.doc_version = doc_version
         if not self.file_path.exists():
             raise FileNotFoundError(f"PDF file not found at: {file_path}")
 
@@ -21,13 +22,14 @@ class PDFParser:
             pages_data.append({
                 "page_num": i + 1,
                 "text": text.strip(),
-                "file_name": self.file_path.name
+                "file_name": self.file_path.name,
+                "doc_version": self.doc_version
             })
         return pages_data
 
     def chunk_document(self, chunk_size: int = 500, overlap: int = 100) -> List[Dict[str, Any]]:
         """
-        Chunks PDF content into context-aware chunks preserving section headings & page numbers.
+        Chunks PDF content into context-aware chunks preserving section headings, page numbers & version tags.
         """
         pages = self.extract_pages()
         chunks = []
@@ -60,7 +62,8 @@ class PDFParser:
                         "text": current_text,
                         "page_num": page_num,
                         "section": current_heading,
-                        "file_name": self.file_path.name
+                        "file_name": self.file_path.name,
+                        "doc_version": self.doc_version
                     })
                     chunk_id += 1
                     # Keep overlap words
@@ -75,7 +78,8 @@ class PDFParser:
                         "text": current_text,
                         "page_num": page_num,
                         "section": current_heading,
-                        "file_name": self.file_path.name
+                        "file_name": self.file_path.name,
+                        "doc_version": self.doc_version
                     })
                     chunk_id += 1
 

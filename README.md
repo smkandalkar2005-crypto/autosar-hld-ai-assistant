@@ -1,4 +1,4 @@
-# 🚗 AUTOSAR HLD Document Analysis Assistant (Automotive AI Case Study 1)
+# 🚗 AUTOSAR HLD Document Analysis Assistant (Tata TechPulse Automotive AI Case Study 1)
 
 [![Python](https://img.shields.io/badge/Python-3.10%2B-blue.svg)](https://www.python.org/)
 [![Streamlit](https://img.shields.io/badge/Streamlit-1.31%2B-red.svg)](https://streamlit.io/)
@@ -6,154 +6,154 @@
 [![AUTOSAR](https://img.shields.io/badge/Standard-AUTOSAR%20Classic%2FAdaptive-orange.svg)]()
 [![License](https://img.shields.io/badge/License-MIT-purple.svg)](LICENSE)
 
-An intelligent, AI-powered **AUTOSAR High-Level Design (HLD) Analysis Platform** that automates architectural knowledge extraction, component/interface mapping, RAG-based natural language Q&A with page-level citations, and design inconsistency detection.
+An intelligent, AI-powered **AUTOSAR High-Level Design (HLD) Analysis Platform** that automates architectural knowledge extraction, 5-tier dependency mapping, rule-based completeness checks, HLD revision comparison (V1 vs V2), grounded RAG Q&A with version citations, and executive JSON/PDF report export.
 
-Built as part of the **Automotive Engineering AI Case Study Series (Case Study 1: AUTOSAR HLD Document Analysis Assistant)**.
+Built to fulfill the required scope of **Tata TechPulse Automotive Engineering AI Case Study 1: AUTOSAR HLD Document Analysis Assistant**.
 
----
-
-## 📌 Executive Summary
-
-Automotive engineering teams spend hundreds of hours manually parsing unstructured, 100+ page HLD PDF documents to locate software components, ports, interfaces, and BSW stack dependencies. Manual review often leads to missed interface mismatches, unassigned signals, and incomplete test coverage.
-
-This system provides:
-- 📄 **Automated PDF Ingestion & Section Parsing** with page-level metadata tracking.
-- 🏗️ **Architectural Entity Extraction** (SWCs, BSW modules like `EcuM`, `BswM`, `Dem`, `CanIf`, Interfaces, `PPort`/`RPort` prototypes, and Signals).
-- ⚠️ **Automated Inconsistency & Gap Checker** (Detects orphan `RPort`s, missing BSW drivers, unassigned data signals, and unmapped runnables).
-- 💬 **Citation-Grounded RAG Q&A Engine** providing answers backed by page and section citations.
-- 📥 **Executive Report Export** (Formatted PDF reports and structured JSON specifications).
+> **Note on Test Data**: Sample revision documents (e.g. `AUTOSAR_Engine_Control_Unit_HLD_V2.pdf`) are explicitly labeled as **[SAMPLE / TEST DATA FOR REVISION COMPARISON DEMONSTRATION ONLY]** and are provided solely for test and evaluation purposes.
 
 ---
 
-## 🏗️ System Architecture & Workflow
+## 📌 Features & Required Scope Coverage
+
+### 1. HLD Revision / Document Comparison
+- Compare two HLD document versions (e.g., HLD Version 1 vs HLD Version 2).
+- Automatically identifies added, removed, and modified sections, components (SWCs), BSW stack modules, interfaces, ports, signals, and changed dependencies.
+- Displays version references and page/section citations for every detected change.
+
+### 2. Architecture Completeness Check
+- Deterministic, rule-based analysis identifying missing dependencies, unmapped interfaces, missing MCAL drivers (`Can`), missing diagnostic modules (`Dcm`), state managers (`EcuM`), and unmapped signals.
+- Every finding explicitly distinguishes:
+  - **Evidence found in document**
+  - **Detected gap**
+  - **Reason for flagging**
+  - **Source page/section reference**
+
+### 3. Architecture Dependency & 5-Tier Relationship Map
+- End-to-end representation of architectural relationships:
+  $$\text{SWC / Component} \longrightarrow \text{Port Prototype} \longrightarrow \text{Interface} \longrightarrow \text{Signal Payload} \longrightarrow \text{Target Destination Component / BSW}$$
+
+### 4. Component / Interface Detail Report
+- Generates detailed component cards for any selected Software Component (SWC), detailing component type, bound ports, mapped interfaces, data signals, functional flows, source references, and completeness findings.
+
+### 5. Structured Architecture Export
+- Exports full structured architecture specification in JSON matching complete schema (components, BSW modules, ports, interfaces, signals, 5-tier relationships, completeness findings, revision comparison, and document version metadata).
+- Preserves executive PDF export functionality.
+
+### 6. Version-Aware RAG Assistant
+- Vector store indexes version metadata tags (`V1.0`, `V2.0`).
+- Multi-turn Q&A engine answers comparative questions (*"What changed in V2?"*, *"Which components were added?"*) with version and page citations.
+
+---
+
+## 🏗️ System Architecture
 
 ```mermaid
 flowchart TD
-    A[📄 AUTOSAR HLD PDF Document] --> B[🔍 PDF Parser & Section Chunking]
-    B --> C[🧠 Vector Embedding Store - SentenceTransformers]
-    B --> D[⚙️ Architecture Entity Extractor]
+    A[📄 Primary HLD V1 PDF] --> C[🔍 PDF Parser & Version Tagging]
+    B[📄 Revision HLD V2 PDF] --> C
     
-    D --> E[📦 SWCs, BSW Modules, Ports, Signals & Interfaces]
-    D --> F[⚠️ Inconsistency & Dependency Gap Analysis]
+    C --> D[🧠 Multi-Version Vector Database - SentenceTransformers]
+    C --> E[⚙️ Architecture Entity Extractor]
     
-    C --> G[💬 Citation-Grounded RAG Query Engine]
-    G --> H[🖥️ Streamlit Interactive Engineering UI]
-    E --> H
-    F --> H
+    E --> F[🔗 5-Tier Relationship Builder SWC->Port->If->Sig->Target]
+    E --> G[🔍 Rule-Based Completeness Analyzer]
+    E --> H[🔄 HLD Revision Comparator V1 vs V2]
     
-    H --> I[📥 Downloadable PDF / JSON Executive Reports]
+    D --> I[💬 Version-Aware Grounded RAG Engine]
+    F --> J[🖥️ Streamlit Interactive Engineering UI]
+    G --> J
+    H --> J
+    I --> J
+    
+    J --> K[📥 Downloadable Structured JSON & Executive PDF Reports]
 ```
-
----
-
-## 🔥 Key Features
-
-| Feature | Description |
-| :--- | :--- |
-| **Section-Aware PDF Ingestion** | Extracts text page-by-page, detects section headings, and creates context-aware chunks with citation metadata. |
-| **AUTOSAR Entity Recognition** | Dual Regex + LLM extraction of Application SWCs (`EngineSpeedControl_SWC`), BSW Modules (`EcuM`, `BswM`, `Com`, `CanIf`, `Dem`), Interfaces, Ports, and Signals. |
-| **Design Inconsistency Checker** | Identifies orphaned Requester Ports (RPorts without matching PPorts), missing MCAL drivers, and incomplete BSW stacks. |
-| **Grounded RAG Assistant** | Answers natural language questions grounded strictly in the HLD context with page numbers and snippet citations. |
-| **Offline & Online Multi-LLM Support** | Works 100% out-of-the-box with a built-in Grounded Engine fallback, plus support for Google Gemini API, Groq, or Ollama. |
-| **Executive PDF & JSON Exporter** | Generates audit-ready PDF reports and JSON specifications for integration into downstream tools. |
 
 ---
 
 ## 🛠️ Technology Stack
 
-- **User Interface**: [Streamlit](https://streamlit.io/) (Dark Mode Automotive Theme)
-- **Document Parser**: `pypdf`, `pdfplumber`
+- **User Interface**: Streamlit (Dark Mode Automotive Theme)
+- **PDF Parser**: `pypdf`, `pdfplumber`
 - **Embeddings**: `SentenceTransformers` (`all-MiniLM-L6-v2`)
-- **Vector Search**: Local Cosine Similarity Vector DB / ChromaDB
-- **LLM Engine**: Google Gemini API (`google-genai`), Groq, or Offline Grounded Rule-Based Engine
+- **Vector Search**: Local Cosine Similarity Vector DB with Version Tag Filtering
+- **LLM Engine**: Google Gemini API (`google-genai`), Groq, or Grounded Offline Engine
 - **Report Generation**: `reportlab` (PDF) & `json` (Structured Specs)
 
 ---
 
 ## 🚀 Getting Started
 
-### 1. Prerequisites
-- Python 3.10 or higher
-- Git
-
-### 2. Installation
-
-Clone the repository and install dependencies:
+### 1. Installation
 
 ```bash
 # Clone repository
 git clone https://github.com/YOUR_USERNAME/autosar-hld-ai-assistant.git
 cd autosar-hld-ai-assistant
 
-# Create virtual environment
+# Create & activate virtual environment
 python -m venv .venv
-
-# Activate virtual environment
-# On Windows:
-.venv\Scripts\activate
-# On Linux/macOS:
-source .venv/bin/activate
+.venv\Scripts\activate   # On Windows
+# source .venv/bin/activate  # On Linux/macOS
 
 # Install dependencies
 pip install -r requirements.txt
 ```
 
-### 3. Generate Sample AUTOSAR HLD PDFs
-Generate sample AUTOSAR HLD PDFs (`AUTOSAR_Engine_Control_Unit_HLD.pdf` and `AUTOSAR_Body_Control_Module_HLD.pdf`):
+### 2. Generate Test Sample PDFs (V1, V2, BCM)
 
 ```bash
 python generate_samples.py
 ```
 
-### 4. Launch the Web Application
+### 3. Run Unit & Feature Test Suite
+
+```bash
+python tests/test_hld_features.py
+```
+
+### 4. Launch the Application
 
 ```bash
 streamlit run app.py
 ```
-
-Or on Windows, simply double-click `run_app.bat`!
+*(Or double-click `run_app.bat` on Windows)*
 
 ---
 
-## 📂 Project Directory Structure
+## 📂 Project Structure
 
 ```
 autosar-hld-ai-assistant/
 │
-├── app.py                      # Streamlit Frontend Web Dashboard
-├── generate_samples.py         # Sample AUTOSAR HLD PDF Generator Script
-├── run_app.bat                 # 1-Click Windows Launcher Batch Script
+├── app.py                      # Streamlit Frontend Web Dashboard (7 Interactive Tabs)
+├── generate_samples.py         # Sample AUTOSAR HLD PDF Generator (V1, V2, BCM)
+├── run_app.bat                 # 1-Click Windows Launcher Script
 ├── requirements.txt            # Python Dependencies
 ├── LICENSE                     # MIT License
 ├── README.md                   # Project Documentation
 ├── .gitignore                  # Git Exclusion File
 │
-├── sample_documents/           # Sample AUTOSAR HLD Test PDF Documents
+├── sample_documents/           # Sample Test PDF Documents (Explicitly Labeled)
 │   ├── AUTOSAR_Engine_Control_Unit_HLD.pdf
+│   ├── AUTOSAR_Engine_Control_Unit_HLD_V2.pdf
 │   └── AUTOSAR_Body_Control_Module_HLD.pdf
 │
-└── src/                        # Core Application Source Modules
-    ├── __init__.py
-    ├── config.py               # Settings, Prompts & AUTOSAR Keyword Taxonomy
-    ├── pdf_parser.py           # Page & Section-Aware PDF Extractor
-    ├── extractor.py            # AUTOSAR Entity & Port/Signal Extractor
-    ├── vector_store.py         # SentenceTransformers Vector Index
-    ├── llm_engine.py           # Grounded RAG & LLM Provider Engine
-    ├── inconsistency_checker.py# Architecture Gap & Inconsistency Analyzer
-    └── report_generator.py     # PDF & JSON Executive Report Exporter
+├── src/                        # Core Application Source Modules
+│   ├── __init__.py
+│   ├── config.py               # Settings, Prompts & AUTOSAR Keyword Taxonomy
+│   ├── pdf_parser.py           # Page & Section Parser with Version Metadata Tags
+│   ├── extractor.py            # AUTOSAR Entity Recognition
+│   ├── relationship_builder.py # 5-Tier Dependency Builder (SWC->Port->If->Sig->Target)
+│   ├── completeness_analyzer.py# Rule-Based Architectural Completeness Analyzer
+│   ├── comparator.py           # HLD V1 vs V2 Document Revision Comparator
+│   ├── vector_store.py         # Version-Aware SentenceTransformers Vector Store
+│   ├── llm_engine.py           # Version-Aware RAG Synthesis Engine
+│   └── report_generator.py     # Component Detail & Structured JSON/PDF Exporter
+│
+└── tests/                      # Automated Feature Test Suite
+    └── test_hld_features.py    # Unit & Integration Tests
 ```
-
----
-
-## 📝 Case Study Specification Alignment
-
-This implementation fulfills all core requirements specified in **Case Study 1 (AUTOSAR HLD Document Analysis Assistant)**:
-
-- ✅ PDF Ingestion & Section Metadata Extraction
-- ✅ SWC, BSW Module, Port, Interface & Signal Extraction
-- ✅ Grounded Q&A with Page & Section Citations
-- ✅ Inconsistency & Dependency Gap Reporting
-- ✅ Structured PDF & JSON Export
 
 ---
 

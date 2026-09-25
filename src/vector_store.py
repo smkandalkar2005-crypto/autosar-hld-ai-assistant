@@ -10,7 +10,7 @@ except ImportError:
     HAS_ST = False
 
 class VectorStore:
-    """Local vector database for RAG document retrieval using SentenceTransformers embeddings."""
+    """Local vector database for RAG document retrieval with multi-version tag support."""
 
     def __init__(self):
         self.encoder = None
@@ -19,22 +19,26 @@ class VectorStore:
 
         if HAS_ST:
             try:
-                # Load lightweight sentence transformer model
                 self.encoder = SentenceTransformer(EMBEDDING_MODEL_NAME)
             except Exception as e:
                 print(f"[VectorStore Warning] Could not load SentenceTransformer ({e}). Fallback to TF-IDF matching.")
 
     def add_chunks(self, chunks: List[Dict[str, Any]]):
-        """Indexes text chunks with metadata embeddings."""
-        self.chunks = chunks
+        """Indexes text chunks with metadata embeddings and version tags."""
+        self.chunks.extend(chunks)
         texts = [c["text"] for c in chunks]
 
         if self.encoder:
             try:
-                self.embeddings = self.encoder.encode(texts, convert_to_numpy=True).tolist()
+                new_embs = self.encoder.encode(texts, convert_to_numpy=True).tolist()
+                self.embeddings.extend(new_embs)
             except Exception as e:
                 print(f"[VectorStore] Embedding error: {e}")
-                self.embeddings = []
+
+    def clear(self):
+        """Clears indexed chunks."""
+        self.chunks = []
+        self.embeddings = []
 
     def _cosine_similarity(self, vec_a: List[float], vec_b: List[float]) -> float:
         dot = sum(a * b for a, b in zip(vec_a, vec_b))
@@ -44,18 +48,27 @@ class VectorStore:
             return 0.0
         return dot / (norm_a * norm_b)
 
-    def search(self, query: str, top_k: int = 4) -> List[Dict[str, Any]]:
-        """Performs semantic search over indexed document chunks."""
+    def search(self, query: str, top_k: int = 4, version_filter: str = None) -> List[Dict[str, Any]]:
+        """Performs semantic search over indexed document chunks, optionally filtering by version tag."""
         if not self.chunks:
             return []
 
+        search_chunks = self.chunks
+        search_embeddings = self.embeddings
+
+        if version_filter:
+            indices = [i for i, c in enumerate(self.chunks) if c.get("doc_version") == version_filter or c.get("file_name") == version_filter]
+            if indices:
+                search_chunks = [self.chunks[i] for i in indices]
+                search_embeddings = [self.embeddings[i] for i in indices] if self.embeddings else []
+
         # Vector search if embeddings exist
-        if self.encoder and self.embeddings:
+        if self.encoder and search_embeddings:
             query_vec = self.encoder.encode(query, convert_to_numpy=True).tolist()
             scores = []
-            for i, emb in enumerate(self.embeddings):
+            for i, emb in enumerate(search_embeddings):
                 sim = self._cosine_similarity(query_vec, emb)
-                scores.append((sim, self.chunks[i]))
+                scores.append((sim, search_chunks[i]))
             
             scores.sort(key=lambda x: x[0], reverse=True)
             results = []
@@ -65,10 +78,10 @@ class VectorStore:
                 results.append(item)
             return results
 
-        # Keyword matching fallback if model isn't available
+        # Keyword matching fallback
         query_words = set(query.lower().split())
         keyword_scores = []
-        for chunk in self.chunks:
+        for chunk in search_chunks:
             chunk_words = set(chunk["text"].lower().split())
             overlap = len(query_words.intersection(chunk_words))
             score = overlap / (len(query_words) + 1)

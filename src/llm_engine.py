@@ -5,7 +5,7 @@ from src.config import RAG_SYSTEM_PROMPT
 class LLMEngine:
     """
     Multi-provider LLM interface supporting Gemini API, Groq, Ollama, 
-    and a Smart Deterministic Fallback Engine for offline execution.
+    and a Smart Grounded Synthesis Engine for version-aware architectural Q&A.
     """
 
     def __init__(self, api_key: str = None, provider: str = "auto"):
@@ -22,34 +22,33 @@ class LLMEngine:
                 print(f"[LLM Engine] Gemini init note: {e}")
 
     def generate_rag_response(self, query: str, context_chunks: List[Dict[str, Any]]) -> Dict[str, Any]:
-        """Generates a grounded RAG response with citations and metadata."""
+        """Generates a grounded RAG response with document version, page, and section citations."""
         if not context_chunks:
             return {
-                "answer": "No relevant architectural context found in the uploaded High-Level Design document.",
+                "answer": "No relevant architectural context found in the uploaded High-Level Design document(s).",
                 "citations": [],
                 "confidence": "Low"
             }
 
-        # Build context string with citations
         context_str = ""
         citations = []
 
         for chunk in context_chunks:
             page = chunk.get("page_num", "N/A")
             section = chunk.get("section", "General")
+            doc_ver = chunk.get("doc_version", chunk.get("file_name", "V1.0"))
             text = chunk.get("text", "")
-            cid = chunk.get("chunk_id", "")
             
-            context_str += f"\n--- [Page {page} | Section: {section}] ---\n{text}\n"
+            context_str += f"\n--- [Document Version: {doc_ver} | Page {page} | Section: {section}] ---\n{text}\n"
             citations.append({
+                "version": doc_ver,
                 "page": page,
                 "section": section,
                 "snippet": text[:120] + "..."
             })
 
-        prompt = f"{RAG_SYSTEM_PROMPT}\n\nContext Information:\n{context_str}\n\nUser Question: {query}\n\nDetailed Architectural Answer with Page/Section Citations:"
+        prompt = f"{RAG_SYSTEM_PROMPT}\n\nContext Information across HLD Document Versions:\n{context_str}\n\nUser Question: {query}\n\nDetailed Grounded Answer identifying document version, page numbers, and section evidence:"
 
-        # Try Gemini API if client is available
         if self.genai_client and self.provider == "gemini":
             try:
                 response = self.genai_client.models.generate_content(
@@ -64,20 +63,21 @@ class LLMEngine:
             except Exception as e:
                 print(f"[LLM Engine API error] {e}. Falling back to Rule-based RAG synthesis.")
 
-        # Smart Offline Fallback Engine (generates clean grounded response based on top context)
+        # Grounded Offline Fallback Engine
         top_chunk = context_chunks[0]
+        top_ver = top_chunk.get("doc_version", top_chunk.get("file_name", "V1.0"))
         top_page = top_chunk.get("page_num", 1)
         top_sec = top_chunk.get("section", "Architectural Overview")
 
         synthesized_answer = (
-            f"**Architectural Finding (Grounded in HLD Document):**\n\n"
-            f"Based on **Page {top_page}** under section *\"{top_sec}\"*:\n\n"
+            f"**Architectural Finding (Grounded in HLD Document Evidence):**\n\n"
+            f"Based on **Document Version {top_ver}** (Page {top_page}, Section: *\"{top_sec}\"*):\n\n"
             f"\"{top_chunk.get('text', '')[:350]}...\"\n\n"
-            f"### Technical Summary & Traceability:\n"
-            f"- **Relevant Section**: {top_sec}\n"
-            f"- **Source Reference**: Page {top_page} of uploaded document\n"
-            f"- **AUTOSAR Relevance**: The document details component communication, ports, and BSW stack configuration. "
-            f"Ensure all interfaces are bound through RTE."
+            f"### Version Evidence & Traceability:\n"
+            f"- **Document Version**: {top_ver}\n"
+            f"- **Section Reference**: {top_sec}\n"
+            f"- **Source Citation**: Page {top_page}\n"
+            f"- **AUTOSAR Scope**: Grounded directly in extracted HLD specification content."
         )
 
         return {
