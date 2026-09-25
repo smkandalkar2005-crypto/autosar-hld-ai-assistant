@@ -94,7 +94,7 @@ with st.sidebar:
     
     uploaded_file = st.file_uploader("Or Upload Custom AUTOSAR HLD PDF", type=["pdf"])
 
-    process_btn = st.button("🚀 Analyze & Index Document", use_container_state=True, type="primary")
+    process_btn = st.button("🚀 Analyze & Index Document", use_container_width=True, type="primary")
 
 # Main Header
 st.markdown("<div class='main-header'>AUTOSAR HLD Document Analysis Assistant</div>", unsafe_allow_html=True)
