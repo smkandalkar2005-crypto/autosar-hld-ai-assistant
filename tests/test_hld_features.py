@@ -15,6 +15,7 @@ from src.comparator import DocumentComparator
 from src.vector_store import VectorStore
 from src.llm_engine import LLMEngine
 from src.report_generator import ReportGenerator
+from src.knowledge_base import ArchitectureKnowledgeBase
 from src.config import SAMPLE_DOCS_DIR, OUTPUT_DIR
 
 class TestHLDAssistantFeatures(unittest.TestCase):
@@ -240,6 +241,58 @@ class TestHLDAssistantFeatures(unittest.TestCase):
             findings
         )
         self.assertTrue(json_path.exists())
+
+    def test_architecture_knowledge_base(self):
+        """Test standardized Architecture Knowledge Base construction, stable IDs, KPI metrics, and JSON export."""
+        builder = RelationshipBuilder()
+        tree_bcm = builder.build_tree(self.pages_bcm_v1, self.entities_bcm_v1)
+        analyzer = CompletenessAnalyzer()
+        findings = analyzer.analyze_completeness(self.pages_bcm_v1, self.entities_bcm_v1, tree_bcm)
+
+        doc_meta = {
+            "file_name": "AUTOSAR_Body_Control_Module_HLD.pdf",
+            "doc_version": "Version 1.0",
+            "total_pages": 1
+        }
+        kb = ArchitectureKnowledgeBase(
+            doc_metadata=doc_meta,
+            entities=self.entities_bcm_v1,
+            relationship_tree=tree_bcm,
+            completeness_findings=findings
+        )
+
+        data = kb.data
+        self.assertIn("project", data)
+        self.assertIn("document", data)
+        self.assertIn("kpi_counts", data)
+        self.assertIn("components", data)
+        self.assertIn("ports", data)
+        self.assertIn("interfaces", data)
+        self.assertIn("signals", data)
+        self.assertIn("bsw_modules", data)
+
+        # Stable IDs & Name preservation
+        self.assertTrue(any(c["id"].startswith("SWC-") and c["name"] == "DoorLock_SWC" for c in data["components"]))
+        self.assertTrue(any(p["id"].startswith("PORT-") and p["name"] == "RPort_DoorStatus" for p in data["ports"]))
+        self.assertTrue(any(i["id"].startswith("IF-") and i["name"] == "If_DoorState" for i in data["interfaces"]))
+        self.assertTrue(any(s["id"].startswith("SIG-") and s["name"] == "Sig_DoorLock_status" for s in data["signals"]))
+
+        # KPI counts matching actual extracted data
+        kpi = data["kpi_counts"]
+        self.assertEqual(kpi["components"], len(self.entities_bcm_v1.get("software_components", [])))
+        self.assertEqual(kpi["bsw_modules"], len(self.entities_bcm_v1.get("bsw_modules", [])))
+        self.assertEqual(kpi["interfaces"], len(self.entities_bcm_v1.get("interfaces", [])))
+        self.assertEqual(kpi["signals"], len(self.entities_bcm_v1.get("signals", [])))
+        self.assertEqual(kpi["ports"], len(self.entities_bcm_v1.get("ports", [])))
+
+        # Grounding & No fabricated targets
+        pport = next((p for p in data["ports"] if p["name"] == "PPort_LockActuator"), None)
+        self.assertIsNotNone(pport)
+        self.assertEqual(pport["target_component"], "Not specified in source document")
+
+        # JSON Export test
+        out_kb = kb.export_json(OUTPUT_DIR / "test_architecture_knowledge_base.json")
+        self.assertTrue(out_kb.exists())
 
 if __name__ == "__main__":
     unittest.main()

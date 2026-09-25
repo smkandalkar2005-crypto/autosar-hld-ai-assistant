@@ -1,5 +1,6 @@
 import os
 import sys
+import json
 from pathlib import Path
 import streamlit as st
 import pandas as pd
@@ -19,6 +20,7 @@ from src.completeness_analyzer import CompletenessAnalyzer
 from src.relationship_builder import RelationshipBuilder
 from src.comparator import DocumentComparator
 from src.report_generator import ReportGenerator
+from src.knowledge_base import ArchitectureKnowledgeBase
 
 # Page Configuration
 st.set_page_config(
@@ -69,6 +71,60 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
+# Graphviz DOT string generator for Architecture Relationship Visualization
+def generate_relationship_dot(rel_tree: list) -> str:
+    """Generates Graphviz DOT string for actual extracted architecture relationships."""
+    dot_lines = [
+        'digraph AUTOSAR_Architecture {',
+        '  rankdir=LR;',
+        '  bgcolor="transparent";',
+        '  node [fontname="Helvetica", fontsize=10, margin=0.1];',
+        '  edge [fontname="Helvetica", fontsize=9, color="#64748B"];'
+    ]
+
+    added_nodes = set()
+
+    for node in rel_tree:
+        swc = node.get("swc_name", "Unknown_SWC")
+        if swc not in added_nodes:
+            dot_lines.append(f'  "{swc}" [shape=box, style="filled,rounded", fillcolor="#1E3A8A", fontcolor="white", label="SWC: {swc}"];')
+            added_nodes.add(swc)
+
+        for p in node.get("ports", []):
+            p_name = p.get("port_name")
+            p_type = p.get("type", "Port")
+            iface = p.get("mapped_interface")
+            sigs = p.get("mapped_signals", [])
+            target = p.get("target_component")
+
+            port_key = f"{swc}_{p_name}"
+            if port_key not in added_nodes:
+                dot_lines.append(f'  "{port_key}" [shape=box, style=filled, fillcolor="#0D9488", fontcolor="white", label="{p_type}: {p_name}"];')
+                dot_lines.append(f'  "{swc}" -> "{port_key}";')
+                added_nodes.add(port_key)
+
+            if iface and iface != "Not specified in source document":
+                if iface not in added_nodes:
+                    dot_lines.append(f'  "{iface}" [shape=box, style="filled,rounded", fillcolor="#7C3AED", fontcolor="white", label="Interface: {iface}"];')
+                    added_nodes.add(iface)
+                dot_lines.append(f'  "{port_key}" -> "{iface}";')
+
+                for s in sigs:
+                    if s and s != "Not specified in source document":
+                        if s not in added_nodes:
+                            dot_lines.append(f'  "{s}" [shape=ellipse, style=filled, fillcolor="#EA580C", fontcolor="white", label="Signal: {s}"];')
+                            added_nodes.add(s)
+                        dot_lines.append(f'  "{iface}" -> "{s}";')
+
+                        if target and target != "Not specified in source document":
+                            if target not in added_nodes:
+                                dot_lines.append(f'  "{target}" [shape=component, style=filled, fillcolor="#334155", fontcolor="white", label="Target: {target}"];')
+                                added_nodes.add(target)
+                            dot_lines.append(f'  "{s}" -> "{target}";')
+
+    dot_lines.append('}')
+    return '\n'.join(dot_lines)
+
 # Session State Initialization
 if "current_doc" not in st.session_state:
     st.session_state.current_doc = None
@@ -92,11 +148,13 @@ if "comparison_results" not in st.session_state:
     st.session_state.comparison_results = None
 if "chat_history" not in st.session_state:
     st.session_state.chat_history = []
+if "kb" not in st.session_state:
+    st.session_state.kb = None
 
 # Sidebar Configuration
 with st.sidebar:
     st.title("🚗 AUTOSAR AI Assistant")
-    st.caption("Tata TechPulse Case Study 1 Platform")
+    st.caption("Tata TechPulse Case Study 1 Workstation")
     st.markdown("---")
 
     st.subheader("⚙️ AI Model Setup")
@@ -197,6 +255,20 @@ if process_btn and target_pdf_path:
                 entities_v2
             )
 
+        # 8. Construct Architecture Knowledge Base
+        doc_meta = {
+            "file_name": target_pdf_path.name,
+            "doc_version": pages[0].get("doc_version", "Version 1.0") if pages else "Version 1.0",
+            "total_pages": len(pages)
+        }
+        kb = ArchitectureKnowledgeBase(
+            doc_metadata=doc_meta,
+            entities=entities,
+            relationship_tree=rel_tree,
+            completeness_findings=comp_findings,
+            comparison_results=comp_results
+        )
+
         # Store in session state
         st.session_state.current_doc = target_pdf_path.name
         st.session_state.doc_v2 = target_v2_path.name if target_v2_path else None
@@ -210,13 +282,53 @@ if process_btn and target_pdf_path:
         st.session_state.vector_store = vs
         st.session_state.comparison_results = comp_results
         st.session_state.chat_history = []
+        st.session_state.kb = kb
 
         st.success(f"Analysis complete for '{target_pdf_path.name}'!")
 
 # Render Dashboard Tabs
 if st.session_state.current_doc:
-    tab1, tab2, tab3, tab4, tab5, tab6, tab7 = st.tabs([
+    # Build KB if missing from session state
+    if not st.session_state.kb:
+        doc_meta = {
+            "file_name": st.session_state.current_doc,
+            "doc_version": st.session_state.pages[0].get("doc_version", "Version 1.0") if st.session_state.pages else "Version 1.0",
+            "total_pages": len(st.session_state.pages)
+        }
+        st.session_state.kb = ArchitectureKnowledgeBase(
+            doc_metadata=doc_meta,
+            entities=st.session_state.extracted_entities,
+            relationship_tree=st.session_state.relationship_tree,
+            completeness_findings=st.session_state.completeness_findings,
+            comparison_results=st.session_state.comparison_results
+        )
+
+    kb = st.session_state.kb
+    kpi = kb.data["kpi_counts"]
+    doc_info = kb.data["document"]
+
+    # Professional KPI Architecture Overview Header (Requirement 4)
+    st.markdown("### 🌐 Active Architecture KPI Overview")
+    
+    meta_c1, meta_c2, meta_c3 = st.columns(3)
+    meta_c1.metric("Active HLD Document", doc_info["file_name"])
+    meta_c2.metric("Document Version", doc_info["version"])
+    meta_c3.metric("Analysis Status", doc_info["status"] + " ✅")
+
+    kpi_cols = st.columns(6)
+    kpi_cols[0].metric("Software Components", kpi["components"])
+    kpi_cols[1].metric("BSW Modules", kpi["bsw_modules"])
+    kpi_cols[2].metric("Interfaces", kpi["interfaces"])
+    kpi_cols[3].metric("Signals", kpi["signals"])
+    kpi_cols[4].metric("Ports", kpi["ports"])
+    kpi_cols[5].metric("Findings", kpi["findings"])
+
+    st.markdown("---")
+
+    # 8 Main Tabs
+    tab1, tab_kb, tab2, tab3, tab4, tab5, tab6, tab7 = st.tabs([
         "📊 Overview & Summary",
+        "🧠 Architecture Knowledge Base",
         "🏗️ Architecture Inventory",
         "🔗 5-Tier Relationship Map",
         "🔍 Completeness Analysis",
@@ -244,7 +356,82 @@ if st.session_state.current_doc:
         for sec in sections:
             st.markdown(f"- **{sec}**")
 
-    # Tab 2: Architecture Inventory
+    # Tab 2: Architecture Knowledge Base (Requirement 1, 2, 3, 6)
+    with tab_kb:
+        st.subheader("🧠 Standardized Architecture Knowledge Base")
+        st.write(
+            "The Architecture Knowledge Base acts as the single source of truth for extracted AUTOSAR entities, "
+            "stable IDs, relationships, version metadata, and citations. It enables downstream consumption for "
+            "future Automotive Engineering Case Studies without reparsing original HLD PDFs."
+        )
+
+        with st.expander("ℹ️ Automotive AI Pipeline Architecture & Downstream Compatibility", expanded=False):
+            st.markdown("""
+```
+┌──────────────────────┐
+│   AUTOSAR HLD PDF    │
+└──────────┬───────────┘
+           │ (Ingestion & Parsing)
+           ▼
+┌──────────────────────────────────────────────┐
+│ Case Study 1: AUTOSAR HLD Analysis Assistant │
+└──────────┬───────────────────────────────────┘
+           │ (Standard Schema & Stable IDs)
+           ▼
+┌──────────────────────────────────────────────┐
+│     Architecture Knowledge Base (JSON)       │
+└──────────┬───────────────────────────────────┘
+           │ (Downstream Consumption for Case Studies 2–5)
+           ├───────────────────────────┬───────────────────────────┬───────────────────────────┐
+           ▼                           ▼                           ▼                           ▼
+┌─────────────────────┐     ┌─────────────────────┐     ┌─────────────────────┐     ┌─────────────────────┐
+│ Case Study 2: HARA  │     │ Case Study 3: TARA  │     │ Case Study 4: Code  │     │ Case Study 5: UDS   │
+│ (Functional Safety) │     │ (Cybersecurity)     │     │ (Secure Review)     │     │ (Diagnostics)       │
+└─────────────────────┘     └─────────────────────┘     └─────────────────────┘     └─────────────────────┘
+```
+*Note: Case Studies 2–5 represent future downstream modules designed to consume this standardized Architecture Knowledge Base JSON.*
+            """)
+
+        st.markdown("### 📊 Entity Catalog & Stable Identifiers")
+        kb_data = kb.data
+        
+        c1, c2 = st.columns(2)
+        with c1:
+            st.markdown("#### Application Components (`SWC-xxx`)")
+            swc_df = pd.DataFrame(kb_data["components"])
+            if not swc_df.empty:
+                st.dataframe(swc_df[["id", "name", "type", "ports"]], use_container_width=True)
+
+            st.markdown("#### Port Prototype Catalog (`PORT-xxx`)")
+            port_df = pd.DataFrame(kb_data["ports"])
+            if not port_df.empty:
+                st.dataframe(port_df[["id", "name", "component", "type", "interface", "target_component"]], use_container_width=True)
+
+        with c2:
+            st.markdown("#### Basic Software (BSW) Modules (`BSW-xxx`)")
+            bsw_df = pd.DataFrame(kb_data["bsw_modules"])
+            if not bsw_df.empty:
+                st.dataframe(bsw_df[["id", "name", "category"]], use_container_width=True)
+
+            st.markdown("#### Interfaces & Signals (`IF-xxx`, `SIG-xxx`)")
+            if_df = pd.DataFrame(kb_data["interfaces"])
+            if not if_df.empty:
+                st.dataframe(if_df[["id", "name", "signals"]], use_container_width=True)
+
+        st.markdown("### 📥 Downstream Export")
+        kb_json_str = json.dumps(kb_data, indent=2)
+        st.download_button(
+            label="Export Architecture Knowledge Base JSON",
+            data=kb_json_str,
+            file_name="architecture_knowledge_base.json",
+            mime="application/json",
+            type="primary"
+        )
+
+        with st.expander("🛠️ Developer / Raw JSON View"):
+            st.json(kb_data)
+
+    # Tab 3: Architecture Inventory
     with tab2:
         st.subheader("🏗️ Extracted Architecture Inventory")
 
@@ -268,11 +455,17 @@ if st.session_state.current_doc:
         if not ports_df.empty:
             st.dataframe(ports_df, use_container_width=True)
 
-    # Tab 3: 5-Tier Relationship Map (SWC -> Port -> Interface -> Signal -> Target)
+    # Tab 4: 5-Tier Relationship Map & Graph Visualization (Requirement 5)
     with tab3:
         st.subheader("🔗 5-Tier Architectural Dependency & Relationship Map")
         st.write("Displays structured end-to-end trace: `SWC -> Port -> Interface -> Signal -> Target Component`")
 
+        st.markdown("#### 🎨 Architectural Relationship Diagram")
+        dot_str = generate_relationship_dot(rel_tree)
+        st.graphviz_chart(dot_str, use_container_width=True)
+
+        st.markdown("---")
+        st.markdown("#### 📦 Detailed Component Port Hierarchies")
         for swc_node in rel_tree:
             with st.expander(f"📦 Component: {swc_node['swc_name']}", expanded=True):
                 st.markdown(f"**Connected Target Components:** {', '.join(swc_node['connected_components']) or 'Not specified in source document'}")
@@ -288,7 +481,7 @@ if st.session_state.current_doc:
                     </div>
                     """, unsafe_allow_html=True)
 
-    # Tab 4: Completeness Analysis
+    # Tab 5: Completeness Analysis
     with tab4:
         st.subheader("🔍 Architectural Completeness Analysis")
         st.write("Deterministic rule-based checks identifying missing dependencies, interfaces, signals, and functional flows with exact document citations.")
@@ -308,7 +501,7 @@ if st.session_state.current_doc:
                 </div>
                 """, unsafe_allow_html=True)
 
-    # Tab 5: HLD Revision Comparison (V1 vs V2)
+    # Tab 6: HLD Revision Comparison (V1 vs V2)
     with tab5:
         st.subheader("🔄 HLD Revision & Version Comparison")
         comp_res = st.session_state.comparison_results
@@ -343,7 +536,7 @@ if st.session_state.current_doc:
             if not sec_df.empty:
                 st.dataframe(sec_df, use_container_width=True)
 
-    # Tab 6: Version-Aware Q&A
+    # Tab 7: Version-Aware Q&A
     with tab6:
         st.subheader("💬 Version-Aware Citation-Grounded Q&A")
 
@@ -400,7 +593,7 @@ if st.session_state.current_doc:
                             else:
                                 st.markdown(f"- Page {page} — *{sec}* (Doc: `{doc}`, {ver})")
 
-    # Tab 7: Reports & Component Detail Export
+    # Tab 8: Reports & Component Detail Export
     with tab7:
         st.subheader("📥 Executive Export & Component Detail Reports")
 
@@ -421,25 +614,14 @@ if st.session_state.current_doc:
         col_ex1, col_ex2 = st.columns(2)
 
         with col_ex1:
-            st.markdown("#### ⚙️ Structured Architecture JSON Specification")
-            if st.button("Generate Structured JSON Spec", type="primary"):
-                doc_meta = {
-                    "doc_name": st.session_state.current_doc,
-                    "version": "1.0",
-                    "comparison_doc": st.session_state.doc_v2
-                }
-                json_path = reporter.export_structured_json(
-                    doc_meta,
-                    entities,
-                    rel_tree,
-                    comp_findings,
-                    st.session_state.comparison_results
-                )
-                with open(json_path, "rb") as f:
+            st.markdown("#### ⚙️ Architecture Knowledge Base & Structured JSON Spec")
+            if st.button("Generate Architecture KB JSON", type="primary"):
+                kb_path = kb.export_json(OUTPUT_DIR / "architecture_knowledge_base.json")
+                with open(kb_path, "rb") as f:
                     st.download_button(
-                        label="Download Structured JSON Spec",
+                        label="Download Architecture Knowledge Base JSON",
                         data=f,
-                        file_name=json_path.name,
+                        file_name=kb_path.name,
                         mime="application/json"
                     )
 
